@@ -1,6 +1,6 @@
 {
-    "name": "app/vanilla-php",
-    "description": "Базовый проект на Vanilla PHP 8.2+ с Composer, PSR-4 автозагрузкой и Docker Compose (php + postgresql)",
+    "name": "app/checko-php-api",
+    "description": "Vanilla PHP 8.2 API: данные компаний по ИНН (Checko) с PostgreSQL-кэшем",
     "type": "project",
     "license": "MIT",
     "require": {
@@ -13,16 +13,13 @@
             "App\\": "src/"
         }
     },
-    "config": {
-        "sort-packages": true,
-        "optimize-autoloader": true
-    },
     "scripts": {
-        "init": [
-            "@composer dump-autoload --optimize"
-        ],
-        "swagger": [
-            "vendor/bin/openapi src -o public/docs/openapi.yaml"
-        ]
+        "post-install-cmd": "composer dump-autoload --optimize",
+        "post-update-cmd": "composer dump-autoload --optimize",
+        "serve": "php -S localhost:8080 -t public",
+        "swagger": "php bin/generate_swagger.php"
+    },
+    "config": {
+        "sort-packages": true
     }
 }

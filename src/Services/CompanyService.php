@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Dto\CompanyDto;
 use App\Exceptions\DatabaseException;
 use App\HttpClient\CheckoApiClient;
 use DateTimeImmutable;
@@ -47,12 +46,12 @@ final class CompanyService
         }
 
         // --- Шаг 2. Промах по кэшу: запрос к внешнему API -------------------
-        $dto = $this->checkoApiClient->getCompanyByInn($inn);
+        $dto = $this->checkoApiClient->getCompanyDto($inn);
 
         // --- Шаг 3. Сохранение в кэш (UPSERT) --------------------------------
         // Ошибка записи не должна ронять ответ: данные уже получены из API.
         try {
-            $this->upsertCache($inn, $dto);
+            $this->upsertCache($inn, $dto->toArray());
         } catch (DatabaseException $e) {
             error_log(sprintf(
                 '[CompanyService] failed to cache company %s: %s',
@@ -61,7 +60,7 @@ final class CompanyService
             ));
         }
 
-        return ['company' => $dto, 'cached' => false];
+        return ['company' => $dto->toArray(), 'cached' => false];
     }
 
     /**
@@ -126,7 +125,7 @@ final class CompanyService
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO company_cache (inn, data, cached_at)
-             VALUES (:inn, :data::jsonb, now())
+             VALUES (:inn, CAST(:data AS jsonb), now())
              ON CONFLICT (inn) DO UPDATE
                  SET data = EXCLUDED.data,
                      cached_at = now()'

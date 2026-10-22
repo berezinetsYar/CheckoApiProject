@@ -1,10 +1,11 @@
 FROM php:8.2-cli-alpine
 
-# Расширения: pdo, pdo_pgsql, curl (+ opcache для производительности)
-RUN docker-php-ext-install pdo pdo_pgsql curl opcache
+# Расширения: pdo, pdo_pgsql, curl (+ opcache)
+RUN apk add --no-cache icu-dev postgresql-dev libxml2-dev \
+    && docker-php-ext-install pdo pdo_pgsql curl opcache
 
-WORKDIR /var/www/html
+WORKDIR /app
+COPY . /app
 
-# Встроенный веб-сервер PHP: public/index.php — front controller
 EXPOSE 8080
-CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "public/index.php"]
+CMD ["php", "-S", "0.0.0.0:8080", "-t", "public"]

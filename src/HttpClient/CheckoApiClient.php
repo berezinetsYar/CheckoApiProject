@@ -7,18 +7,18 @@ namespace App\HttpClient;
 use App\Dto\CompanyDto;
 use App\Exceptions\ExternalApiException;
 use GuzzleHttp\Client;
-use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\BadResponseException;
 use GuzzleHttp\Exception\TransferException;
+use GuzzleHttp\ClientInterface;
+use JsonException;
 
 /**
- * Клиент Checko API (https://checko.ru) — поиск компании по ИНН.
+ * Клиент Checko API.
  *
- * Зависимости внедряются через конструктор (constructor property promotion):
- *   $client = new CheckoApiClient($apiKey, $baseUrl, useMock: true);
- *
- * В продакшене экземпляры создаёт DI-контейнер (см. public/index.php),
- * чтобы контроллеры/сервисы не знали, откуда берутся ключи.
+ * Зависимости — через constructor property promotion (PHP 8):
+ * параметры с private readonly одновременно создают свойства и присваиваются.
+ * 4-й параметр $httpClient позволяет подставить мок в тестах
+ * (Guzzle MockHandler) без изменения кода класса.
  */
 final class CheckoApiClient
 {
@@ -26,35 +26,28 @@ final class CheckoApiClient
         private readonly string $apiKey,
         private readonly string $baseUrl = 'https://checko.ru/api/company',
         private readonly bool $useMock = false,
-        /** Инъектируется только в тестах (аналог подделки HttpMessageHandler в .NET). */
         private ?ClientInterface $httpClient = null,
     ) {
     }
 
     /**
-     * Возвращает данные компании по ИНН.
+     * Данные компании по ИНН.
      *
-     * @param string $inn 10 (юрлицо) или 12 (ИП) цифр
-     * @return array<string, mixed> Нормализованный массив данных компании
+     * @return array<string, mixed> нормализованный payload (CompanyDto::toArray())
      *
-     * @throws ExternalApiException при 401 / 404 / 5xx / сетевых ошибках
+     * @throws ExternalApiException при ошибках аутентификации/поиска/сети/API
      */
     public function getCompanyByInn(string $inn): array
     {
         return $this->getCompanyDto($inn)->toArray();
     }
 
-    /**
-     * То же, что getCompanyByInn(), но типизированно: DTO вместо «сырого» массива.
-     *
-     * @throws ExternalApiException
-     */
     public function getCompanyDto(string $inn): CompanyDto
     {
         if (!preg_match('/^\d{10}(\d{2})?$/', $inn)) {
             throw new ExternalApiException(
-                "Invalid INN format: \"{$inn}\" (expected 10 or 12 digits)",
-                ExternalApiException::CODE_NOT_FOUND,
+                'Invalid INN format: expected 10 or 12 digits',
+                ExternalApiException::CODE_INVALID_INPUT,
             );
         }
 
@@ -63,46 +56,42 @@ final class CheckoApiClient
         }
 
         try {
-            $response = $this->client()->request('GET', ltrim($inn, '/'), [
+            $response = $this->client()->request('GET', '/' . $inn, [
                 'headers' => [
-                    'Accept'        => 'application/json',
                     'Authorization' => 'Bearer ' . $this->apiKey,
-                    'User-Agent'    => 'vanilla-php-app/1.0',
+                    'Accept'        => 'application/json',
                 ],
                 'query'   => ['api_key' => $this->apiKey],
-                'timeout' => 10.0,
+                'timeout' => 10,
             ]);
 
             $body    = (string) $response->getBody();
             $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
         } catch (BadResponseException $e) {
-            // Сервер ответил HTTP-кодом >= 400.
+            // HTTP-ошибка от Checko: транслируем статус в доменное исключение.
             $status = $e->getResponse()->getStatusCode();
+            $code   = match (true) {
+                $status === 401              => ExternalApiException::CODE_UNAUTHORIZED,
+                $status === 404              => ExternalApiException::CODE_NOT_FOUND,
+                $status >= 500               => ExternalApiException::CODE_SERVER_ERROR,
+                default                      => ExternalApiException::CODE_BAD_RESPONSE,
+            };
 
             throw new ExternalApiException(
-                match ($status) {
-                    401      => 'Checko API: unauthorized (invalid or missing API key)',
-                    404      => "Checko API: company with INN {$inn} not found",
-                    default  => "Checko API: server error (HTTP {$status})",
-                },
-                match (true) {
-                    $status === 401 => ExternalApiException::CODE_UNAUTHORIZED,
-                    $status === 404 => ExternalApiException::CODE_NOT_FOUND,
-                    $status >= 500  => ExternalApiException::CODE_SERVER_ERROR,
-                    default         => ExternalApiException::CODE_BAD_RESPONSE,
-                },
+                sprintf('Checko API responded with HTTP %d', $status),
+                $code,
                 previous: $e,
             );
         } catch (TransferException $e) {
-            // Соединение не установлено / DNS / таймаут (без HTTP-ответа).
+            // DNS/timeout/connection refused — до ответа дело не дошло.
             throw new ExternalApiException(
-                'Checko API is unavailable: ' . $e->getMessage(),
+                'Checko API is unreachable: ' . $e->getMessage(),
                 ExternalApiException::CODE_NETWORK_ERROR,
                 previous: $e,
             );
-        } catch (\JsonException $e) {
+        } catch (JsonException $e) {
             throw new ExternalApiException(
-                'Checko API returned malformed JSON response',
+                'Checko API returned invalid JSON',
                 ExternalApiException::CODE_BAD_RESPONSE,
                 previous: $e,
             );
@@ -110,15 +99,24 @@ final class CheckoApiClient
 
         if (!is_array($decoded)) {
             throw new ExternalApiException(
-                'Checko API returned unexpected payload structure',
+                'Unexpected payload shape from Checko API',
                 ExternalApiException::CODE_BAD_RESPONSE,
             );
         }
 
-        return CompanyDto::fromArray($this->normalize($decoded, $inn));
+        return CompanyDto::fromArray([
+            'source'   => 'checko',
+            'inn'      => $inn,
+            'name'     => (string) ($decoded['name'] ?? $decoded['title'] ?? ''),
+            'ogrn'     => $decoded['ogrn'] ?? null,
+            'address'  => $decoded['address']['value'] ?? ($decoded['address'] ?? null),
+            'status'   => $decoded['status'] ?? null,
+            'director' => $decoded['director']['name'] ?? ($decoded['director'] ?? null),
+            'raw'      => $decoded,
+        ]);
     }
 
-    /** Ленивая инициализация Guzzle (чтобы mock-режим не требовал curl). */
+    /** Ленивая инициализация: в mock-режиме Guzzle не создаётся вовсе. */
     private function client(): ClientInterface
     {
         return $this->httpClient ??= new Client([
@@ -127,50 +125,25 @@ final class CheckoApiClient
     }
 
     /**
-     * Приводит сырой ответ Checko к стабильной внутренней форме.
-     *
-     * @param array<string, mixed> $raw
-     * @return array<string, mixed>
-     */
-    private function normalize(array $raw, string $inn): array
-    {
-        $address = $raw['address'] ?? '';
-        if (is_array($address)) {
-            $address = (string) ($address['unrestricted_value'] ?? '');
-        }
-
-        return [
-            'source'   => 'checko',
-            'inn'      => (string) ($raw['inn'] ?? $inn),
-            'name'     => (string) ($raw['name'] ?? $raw['title'] ?? ''),
-            'ogrn'     => isset($raw['ogrn']) ? (string) $raw['ogrn'] : null,
-            'address'  => (string) $address,
-            'status'   => (string) ($raw['status'] ?? 'unknown'),
-            'director' => isset($raw['manager_name']) ? (string) $raw['manager_name'] : null,
-            'raw'      => $raw,
-        ];
-    }
-
-    /**
-     * Заготовленные тестовые данные (используются когда $useMock === true).
+     * Заглушка для разработки/тестов (CHECKO_USE_MOCK=true).
      *
      * @return array<string, mixed>
      */
     private function mockResponse(string $inn): array
     {
-        $isIp = strlen($inn) === 12;
+        $isIndividualEntrepreneur = strlen($inn) === 12;
 
         return [
             'source'   => 'mock',
             'inn'      => $inn,
-            'name'     => $isIp
-                ? sprintf('ИП Моков И.И. (%s)', $inn)
-                : sprintf('ООО «Чекко-Моки» (%s)', $inn),
-            'ogrn'     => $isIp ? null : '10277' . substr(str_pad($inn, 10, '0'), -7),
+            'name'     => $isIndividualEntrepreneur
+                ? 'Иванов Иван Иванович (ИП)'
+                : 'ПАО «Заглушка»',
+            'ogrn'     => $isIndividualEntrepreneur ? '3' . str_pad(substr($inn, 2), 14, '0') : '1027700132195',
             'address'  => 'г. Москва, ул. Тестовая, д. 1',
-            'status'   => 'active',
-            'director' => $isIp ? null : 'Иванов Иван Иванович',
-            'raw'      => ['mock' => true, 'inn' => $inn],
+            'status'   => 'ACTIVE',
+            'director' => $isIndividualEntrepreneur ? null : 'Сидоров С. С.',
+            'raw'      => ['mock' => true, 'generated_for' => $inn],
         ];
     }
 }

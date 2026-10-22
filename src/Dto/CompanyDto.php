@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace App\Dto;
 
 /**
- * DTO компании — типизированная замена «сырого» array.
- *
- *readonly-класс (PHP 8.2) — аналог record в C#: неизменяемый,
- * с автосгенерированными свойствами из конструктора.
+ * Типизированный ответ о компании (аналог C# record).
+ * Внешний «бесформенный» JSON парсится один раз на границе системы,
+ * дальше по коду ходит только этот DTO.
  */
 final readonly class CompanyDto
 {
@@ -16,11 +15,10 @@ final readonly class CompanyDto
         public string $source,
         public string $inn,
         public string $name,
-        public ?string $ogrn,
-        public string $address,
-        public string $status,
-        public ?string $director,
-        /** @var array<string, mixed> Сырой ответ внешнего API (для отладки/будущих полей) */
+        public ?string $ogrn = null,
+        public ?string $address = null,
+        public ?string $status = null,
+        public ?string $director = null,
         public array $raw = [],
     ) {
     }
@@ -31,12 +29,12 @@ final readonly class CompanyDto
     public static function fromArray(array $data): self
     {
         return new self(
-            source:   (string) ($data['source'] ?? 'unknown'),
+            source:   (string) ($data['source'] ?? 'checko'),
             inn:      (string) ($data['inn'] ?? ''),
             name:     (string) ($data['name'] ?? ''),
             ogrn:     isset($data['ogrn']) ? (string) $data['ogrn'] : null,
-            address:  (string) ($data['address'] ?? ''),
-            status:   (string) ($data['status'] ?? 'unknown'),
+            address:  isset($data['address']) ? (string) $data['address'] : null,
+            status:   isset($data['status']) ? (string) $data['status'] : null,
             director: isset($data['director']) ? (string) $data['director'] : null,
             raw:      (array) ($data['raw'] ?? []),
         );

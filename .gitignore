@@ -20,6 +20,7 @@ composer.lock
 
 # Сгенерированная документация OpenAPI/Swagger
 /public/docs/openapi.yaml
+public/openapi.json
 
 # Данные PostgreSQL (если том локальный)
 /pgdata/
@@ -28,3 +29,5 @@ composer.lock
 .DS_Store
 Thumbs.db
 /nbproject/private/
+docker-data/
+*.bundle

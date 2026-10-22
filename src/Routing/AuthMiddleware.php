@@ -7,20 +7,16 @@ namespace App\Routing;
 /**
  * Простой API-key middleware для защиты маршрутов.
  *
- * Для .NET-разработчика: концептуально это аналог AuthorizationMiddleware /
- * политики [Authorize] из ASP.NET Core, но «вручную»: в Vanilla PHP нет
- * встроенного pipeline'а, поэтому middleware — это обычный класс с методом
- * handle(), который Router вызывает перед диспетчеризацией контроллера.
- *
- * Использование:
- *   $router->add('GET', '/api/company/{inn}', [CompanyController::class, 'getInfo'], ['auth' => true]);
- *   либо глобально: новый AuthMiddleware($apiKey, protectedPrefixes: ['/api/'])
+ * Для .NET-разработчика: концептуально аналог AuthorizationMiddleware из
+ * ASP.NET Core, но «вручную»: в Vanilla PHP нет встроенного pipeline'а,
+ * поэтому middleware — обычный класс с методом handle(), который Router
+ * вызывает перед диспетчеризацией контроллера.
  */
 final class AuthMiddleware
 {
     /**
-     * @param string|null $apiKey          ожидаемый ключ (env CHECKO_API_KEY и т.п.); null = защита выключена
-     * @param string[]    $protectedPrefixes префиксы путей, требующие аутентификацию (пустой массив = все)
+     * @param string|null $apiKey           ожидаемый ключ (env APP_API_KEY); null = защита выключена
+     * @param string[]    $protectedPrefixes префиксы путей, требующие аутентификации (пустой массив = все)
      */
     public function __construct(
         private readonly ?string $apiKey,
@@ -34,7 +30,7 @@ final class AuthMiddleware
      */
     public function handle(string $method, string $path): bool
     {
-        // Ключ не настроен — считаем, что auth отключён (dev-режим).
+        // Ключ не настроен — auth отключён (dev-режим).
         if ($this->apiKey === null || $this->apiKey === '') {
             return true;
         }
@@ -50,7 +46,7 @@ final class AuthMiddleware
 
         $provided = $this->extractKey();
 
-        // hash_equals — защита от timing-атак (сравнение за константное время),
+        // hash_equals — сравнение за константное время (защита от timing-атак),
         // аналог CryptographicOperations.FixedTimeEquals в .NET.
         if ($provided !== null && hash_equals($this->apiKey, $provided)) {
             return true;
@@ -64,20 +60,24 @@ final class AuthMiddleware
     }
 
     /**
-     * Извлекает ключ из заголовка Authorization: Bearer <key>
-     * или из query-параметра ?api_key=<key>.
+     * Извлекает ключ из заголовка X-API-KEY, затем Authorization: Bearer <key>,
+     * затем query-параметра ?api_key=<key>.
      */
     private function extractKey(): ?string
     {
-        // $_SERVER['HTTP_AUTHORIZATION'] заполняется веб-сервером,
-        // если клиент прислал заголовок Authorization.
-        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        // $_SERVER['HTTP_X_API_KEY'] заполняется веб-сервером из заголовка X-API-KEY.
+        $header = $_SERVER['HTTP_X_API_KEY'] ?? '';
         if (is_string($header) && $header !== '') {
-            if (preg_match('/^Bearer\s+(\S+)$/i', trim($header), $m) === 1) {
+            return trim($header);
+        }
+
+        $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (is_string($auth) && $auth !== '') {
+            if (preg_match('/^Bearer\s+(\S+)$/i', trim($auth), $m) === 1) {
                 return $m[1];
             }
-            // Допускаем и «голый» ключ без схемы Bearer.
-            return trim($header);
+
+            return trim($auth);
         }
 
         $query = $_GET['api_key'] ?? null;

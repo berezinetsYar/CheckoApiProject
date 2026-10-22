@@ -8,37 +8,33 @@ use ReflectionClass;
 use ReflectionNamedType;
 
 /**
- * Минимальный DI-контейнер (аналог IServiceCollection/IServiceProvider
- * из ASP.NET Core, но без жизненных циклов Scoped — процесс PHP живёт один запрос).
+ * Минимальный DI-контейнер с autowiring (аналог IServiceProvider в миниатюре).
  *
- * Использование:
- *   $container = new Container();
- *   $container->bind(CompanyService::class, fn (Container $c) => new CompanyService($c->get(CheckoApiClient::class)));
- *   $controller = $container->get(CompanyController::class); // зависимости — по type-hint'ам
+ * bind(Class, factory?) — регистрация фабрики или singleton-класса;
+ * get(Class)        — разрешение зависимости: если есть фабрика — зовём её,
+ * иначе рефлексируем конструктор и рекурсивно создаём аргументы по type-hint'ам.
+ *
+ * В отличие от ASP.NET Core DI здесь нет Scoped-жизненного цикла: весь процесс
+ * PHP живёт ровно один HTTP-запрос, поэтому достаточно Singleton.
  */
 final class Container
 {
     /** @var array<string, callable> */
     private array $factories = [];
 
-    /** @var array<string, object> одиночные экземпляры (singleton) */
+    /** @var array<string, object> */
     private array $instances = [];
 
     /**
-     * Регистрирует фабрику для класса/интерфейса.
-     *
-     * @param class-string|string $id
+     * @param class-string      $id
+     * @param (callable(self): object)|null $factory
      */
-    public function bind(string $id, callable $factory): void
+    public function bind(string $id, ?callable $factory = null): void
     {
-        unset($this->instances[$id]);
-        $this->factories[$id] = $factory;
+        $this->factories[$id] = $factory ?? static fn (self $c): object => $c->build($id);
     }
 
     /**
-     * Возвращает экземпляр: сначала — из registered factory,
-     * иначе — автозаполнение конструктора по type-hint'ам (рефлексия).
-     *
      * @template T of object
      * @param class-string<T> $id
      * @return T
@@ -46,56 +42,52 @@ final class Container
     public function get(string $id): object
     {
         if (isset($this->instances[$id])) {
+            /** @var T */
             return $this->instances[$id];
         }
 
-        if (isset($this->factories[$id])) {
-            return $this->instances[$id] = ($this->factories[$id])($this);
-        }
+        $factory = $this->factories[$id]
+            ?? static fn (self $c): object => $c->build($id);
 
-        return $this->instances[$id] = $this->autowire($id);
+        return $this->instances[$id] = $factory($this);
     }
 
     /**
-     * Рекурсивно создаёт объект, разрешая параметры конструктора по type-hint'ам.
+     * Автосборка объекта по конструктору (по type-hint'ам параметров).
      *
-     * @template T of object
-     * @param class-string<T> $class
-     * @return T
+     * @param class-string $id
      */
-    private function autowire(string $class): object
+    private function build(string $id): object
     {
-        $reflection = new ReflectionClass($class);
-
-        if (!$reflection->isInstantiable()) {
-            throw new \RuntimeException("Class {$class} is not instantiable and has no factory registered.");
-        }
-
+        $reflection = new ReflectionClass($id);
         $constructor = $reflection->getConstructor();
+
         if ($constructor === null) {
-            return new $class();
+            return new $id();
         }
 
-        $arguments = [];
-        foreach ($constructor->getParameters() as $parameter) {
-            $type = $parameter->getType();
+        $args = [];
+        foreach ($constructor->getParameters() as $param) {
+            $type = $param->getType();
 
             if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
-                $arguments[] = $this->get($type->getName());
+                $args[] = $this->get($type->getName());
                 continue;
             }
 
-            // Скалярный параметр без фабрики — берём значение по умолчанию.
-            if ($parameter->isDefaultValueAvailable()) {
-                $arguments[] = $parameter->getDefaultValue();
+            if ($param->isDefaultValueAvailable()) {
+                $args[] = $param->getDefaultValue();
                 continue;
             }
 
-            throw new \RuntimeException(
-                "Cannot auto-wire parameter \${$parameter->getName()} of {$class}. Register a factory via bind()."
-            );
+            throw new \RuntimeException(sprintf(
+                'Cannot auto-wire %s::%s(): no binding for parameter $%s',
+                $id,
+                '__construct',
+                $param->getName()
+            ));
         }
 
-        return $reflection->newInstanceArgs($arguments);
+        return $reflection->newInstanceArgs($args);
     }
 }
