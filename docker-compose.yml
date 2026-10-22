@@ -10,11 +10,15 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DB_HOST: postgresql
-      DB_PORT: "5432"
-      DB_DATABASE: app
-      DB_USERNAME: app
-      DB_PASSWORD: secret
+      APP_ENV: ${APP_ENV:-dev}
+      CHECKO_API_KEY: ${CHECKO_API_KEY:-}
+      CHECKO_BASE_URL: ${CHECKO_BASE_URL:-https://checko.ru/api/company}
+      CHECKO_USE_MOCK: ${CHECKO_USE_MOCK:-true}
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
     depends_on:
       postgresql:
         condition: service_healthy
@@ -34,7 +38,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U app -d app"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 5
 
 volumes:
   pgdata:

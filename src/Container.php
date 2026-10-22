@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App;
 
+use ReflectionClass;
 use ReflectionNamedType;
 
 /**
  * Минимальный DI-контейнер (аналог IServiceCollection/IServiceProvider
- * из ASP.NET Core, но без жизненных циклов и AOT).
+ * из ASP.NET Core, но без жизненных циклов Scoped — процесс PHP живёт один запрос).
  *
  * Использование:
  *   $container = new Container();
- *   $container->bind(CompanyService::class, fn () => new CompanyService(new ApiClient()));
+ *   $container->bind(CompanyService::class, fn (Container $c) => new CompanyService($c->get(CheckoApiClient::class)));
  *   $controller = $container->get(CompanyController::class); // зависимости — по type-hint'ам
  */
 final class Container
@@ -30,6 +31,7 @@ final class Container
      */
     public function bind(string $id, callable $factory): void
     {
+        unset($this->instances[$id]);
         $this->factories[$id] = $factory;
     }
 
@@ -44,7 +46,7 @@ final class Container
     public function get(string $id): object
     {
         if (isset($this->instances[$id])) {
-            return $this->instances[$id]; // php@8.2
+            return $this->instances[$id];
         }
 
         if (isset($this->factories[$id])) {
@@ -55,37 +57,45 @@ final class Container
     }
 
     /**
-     * Рекурсивно создаёт объект, разрешая параметры конструктора.
-     * Скалярные/приводимые к скалярам параметры используют значения по умолчанию.
+     * Рекурсивно создаёт объект, разрешая параметры конструктора по type-hint'ам.
+     *
+     * @template T of object
+     * @param class-string<T> $class
+     * @return T
      */
     private function autowire(string $class): object
     {
-        $reflector = new \ReflectionClass($class);
-        $ctor      = $reflector->getConstructor();
+        $reflection = new ReflectionClass($class);
 
-        if ($ctor === null) {
+        if (!$reflection->isInstantiable()) {
+            throw new \RuntimeException("Class {$class} is not instantiable and has no factory registered.");
+        }
+
+        $constructor = $reflection->getConstructor();
+        if ($constructor === null) {
             return new $class();
         }
 
-        $args = [];
-        foreach ($ctor->getParameters() as $param) {
-            $type = $param->getType();
+        $arguments = [];
+        foreach ($constructor->getParameters() as $parameter) {
+            $type = $parameter->getType();
 
             if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
-                $args[] = $this->get($type->getName());
+                $arguments[] = $this->get($type->getName());
                 continue;
             }
 
-            if ($param->isDefaultValueAvailable()) {
-                $args[] = $param->getDefaultValue();
+            // Скалярный параметр без фабрики — берём значение по умолчанию.
+            if ($parameter->isDefaultValueAvailable()) {
+                $arguments[] = $parameter->getDefaultValue();
                 continue;
             }
 
             throw new \RuntimeException(
-                "Cannot resolve parameter \${$param->getName()} of {$class}"
+                "Cannot auto-wire parameter \${$parameter->getName()} of {$class}. Register a factory via bind()."
             );
         }
 
-        return $reflector->newInstanceArgs($args);
+        return $reflection->newInstanceArgs($arguments);
     }
 }

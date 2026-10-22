@@ -8,7 +8,9 @@ use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 
 /**
- * Базовая обёртка над Guzzle для HTTP-запросов к внешним API.
+ * Базовая обёртка над Guzzle для произвольных HTTP-запросов.
+ * Специализированные клиенты (например, CheckoApiClient) могут использовать её
+ * или собственный Guzzle Client напрямую.
  */
 final class ApiClient
 {
@@ -20,8 +22,8 @@ final class ApiClient
             'base_uri' => $baseUrl,
             'timeout'  => 10.0,
             'headers'  => array_merge([
-                'Accept'        => 'application/json',
-                'User-Agent'    => 'vanilla-php-app/1.0',
+                'Accept'     => 'application/json',
+                'User-Agent' => 'vanilla-php-app/1.0',
             ], $defaultHeaders),
         ]);
     }
