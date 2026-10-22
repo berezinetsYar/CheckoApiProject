@@ -13,7 +13,7 @@ services:
     environment:
       TZ: UTC
       CHECKO_API_KEY: ${CHECKO_API_KEY:-demo-key}
-      CHECKO_BASE_URL: ${CHECKO_BASE_URL:-https://checko.ru/api/company}
+      CHECKO_BASE_URL: ${CHECKO_BASE_URL:-https://api.checko.ru/v2}
       CHECKO_USE_MOCK: ${CHECKO_USE_MOCK:-true}
       DB_HOST: postgresql
       DB_PORT: "5432"

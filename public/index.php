@@ -34,7 +34,7 @@ if (PHP_SAPI === 'cli-server') {
 // 2. Конфигурация из окружения
 // ---------------------------------------------------------------------------
 $apiKey  = getenv('CHECKO_API_KEY') ?: 'demo-key';
-$baseUrl = getenv('CHECKO_BASE_URL') ?: 'https://checko.ru/api/company';
+$baseUrl = getenv('CHECKO_BASE_URL') ?: 'https://api.checko.ru/v2';
 $useMock = filter_var(getenv('CHECKO_USE_MOCK'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
 
 $dbHost = getenv('DB_HOST') ?: 'postgresql';
