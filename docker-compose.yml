@@ -1,0 +1,40 @@
+services:
+  php:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vanilla_php
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgresql
+      DB_PORT: "5432"
+      DB_DATABASE: app
+      DB_USERNAME: app
+      DB_PASSWORD: secret
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
+  postgresql:
+    image: postgres:16-alpine
+    container_name: vanilla_postgres
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
