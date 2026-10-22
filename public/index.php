@@ -5,11 +5,11 @@ declare(strict_types=1);
 /**
  * Точка входа приложения (front controller).
  *
- * Аналог Program.cs в ASP.NET Core: здесь настраивается "конвейер" —
- * контейнер зависимостей, роутер и регистрация маршрутов.
+ * Для .NET-разработчика: это аналог Program.cs — здесь собираются
+ * «сервисы» (наш мини-контейнер), настраивается маршрутизация и
+ * запускается обработка запроса. В PHP весь этот код исполняется
+ * заново на каждый HTTP-запрос (нет долгоживущего процесса, как Kestrel).
  */
-
-require __DIR__ . '/../vendor/autoload.php';
 
 use App\Controllers\CompanyController;
 use App\Container;
@@ -17,28 +17,65 @@ use App\HttpClient\CheckoApiClient;
 use App\Routing\Router;
 use App\Services\CompanyService;
 
-// Простой DI-контейнер (аналог builder.Services.AddSingleton + BuildServiceProvider()).
+require __DIR__ . '/../vendor/autoload.php';
+
+// ---------------------------------------------------------------------------
+// 1. Конфигурация из окружения (docker-compose задаёт эти переменные)
+// ---------------------------------------------------------------------------
+$apiKey       = getenv('CHECKO_API_KEY') ?: 'demo-key';
+$baseUrl      = getenv('CHECKO_BASE_URL') ?: 'https://checko.ru/api/company';
+$useMock      = filter_var(getenv('CHECKO_USE_MOCK'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_DEFAULT) ?? true;
+
+$dbHost       = getenv('DB_HOST') ?: 'postgresql';
+$dbPort       = getenv('DB_PORT') ?: '5432';
+$dbName       = getenv('DB_NAME') ?: 'app';
+$dbUser       = getenv('DB_USER') ?: 'app';
+$dbPass       = getenv('DB_PASS') ?: 'secret';
+
+// ---------------------------------------------------------------------------
+// 2. Мини-DI контейнер (аналог IServiceCollection в упрощённом виде)
+// ---------------------------------------------------------------------------
 $container = new Container();
 
-// Конфигурация из переменных окружения (аналог IConfiguration / appsettings.json).
-$env = static fn (string $key, string $default = ''): string => (string) (getenv($key) ?: $default);
+// PDO — singleton: одно соединение на время обработки запроса.
+$container->bind(PDO::class, function () use ($dbHost, $dbPort, $dbName, $dbUser, $dbPass): PDO {
+    $dsn = sprintf('pgsql:host=%s;port=%s;dbname=%s', $dbHost, $dbPort, $dbName);
 
-// Регистрация зависимостей: CheckoApiClient <- CompanyService <- CompanyController.
-// Ключ API и режим mock берутся из окружения (см. docker-compose.yml / .env).
-$container->bind(CheckoApiClient::class, static fn (): CheckoApiClient => new CheckoApiClient(
-    apiKey:  $env('CHECKO_API_KEY', 'demo-key'),
-    baseUrl: $env('CHECKO_BASE_URL', 'https://checko.ru/api/company'),
-    useMock: filter_var($env('CHECKO_USE_MOCK', 'true'), FILTER_VALIDATE_BOOL),
+    try {
+        return new PDO($dsn, $dbUser, $dbPass, [
+            // Все ошибки БД — исключения (в т.ч. PDOException), а не тихие false.
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            // Ассоциативные массивы по умолчанию для fetch().
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            // Настоящие prepared statements на стороне PostgreSQL
+            // (без подстановки значений PHP-ом) — защита от SQL-инъекций.
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]);
+    } catch (PDOException $e) {
+        throw \App\Exceptions\DatabaseException::connection($e);
+    }
+});
+
+// Внешний API-клиент Checko.
+$container->bind(CheckoApiClient::class, fn (): CheckoApiClient => new CheckoApiClient(
+    apiKey:  $apiKey,
+    baseUrl: $baseUrl,
+    useMock: $useMock,
 ));
 
-$container->bind(CompanyService::class, static fn (Container $c): CompanyService =>
-    new CompanyService($c->get(CheckoApiClient::class)));
+// Бизнес-сервис и контроллер разрешаются автоматически по type-hint'ам
+// конструктора (autowiring через рефлексию в App\Container).
+$container->bind(CompanyService::class);
+$container->bind(CompanyController::class);
 
-// Композиция корневых зависимостей выполняется явно здесь, а не внутри контроллера.
+// ---------------------------------------------------------------------------
+// 3. Маршрутизация
+// ---------------------------------------------------------------------------
 $router = new Router($container);
 
 $router->add('GET', '/api/company/{inn}', [CompanyController::class, 'getInfo']);
 
-// Диспетчеризация: разбор $_SERVER['REQUEST_URI'] / REQUEST_METHOD,
-// поиск маршрута, вызов контроллера, JSON-ответ (или 404 {"error":"Not Found"}).
+// ---------------------------------------------------------------------------
+// 4. Диспетчеризация
+// ---------------------------------------------------------------------------
 $router->dispatch();
