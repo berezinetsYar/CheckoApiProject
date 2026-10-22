@@ -44,11 +44,11 @@ final class CheckoApiClient
         }
 
         try {
-            // Добавлены заголовки, чтобы WAF не блокировал запрос как бота
-            $response = $this->client()->request('GET', '/company', [
+            // Теперь Guzzle корректно склеит base_uri ('.../v2/') и 'company'
+            $response = $this->client()->request('GET', 'company', [
                 'query' => [
-                    'key' => $cleanApiKey,
-                    'inn' => $cleanInn,
+                    'key' => trim($this->apiKey), // trim на случай скрытых пробелов/переносов
+                    'inn' => trim($inn),
                 ],
                 'headers' => [
                     'Accept'     => 'application/json',
@@ -61,7 +61,7 @@ final class CheckoApiClient
             $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
 
         } catch (BadResponseException $e) {
-            $status = $e->getResponse()->getStatusCode();
+                        $status = $e->getResponse()->getStatusCode();
             $code   = match (true) {
                 $status === 401 || $status === 403 => ExternalApiException::CODE_UNAUTHORIZED,
                 $status === 404                    => ExternalApiException::CODE_NOT_FOUND,
@@ -100,16 +100,18 @@ final class CheckoApiClient
             );
         }
 
-        $companyData = $decoded['company'] ?? $decoded;
+        // Checko v2 возвращает данные в ключе 'data' с русскими названиями полей
+        $data = $decoded['data'] ?? $decoded;
 
         return CompanyDto::fromArray([
             'source'   => 'checko',
-            'inn'      => $cleanInn,
-            'name'     => (string) ($companyData['name'] ?? $companyData['title'] ?? 'Неизвестно'),
-            'ogrn'     => $companyData['ogrn'] ?? null,
-            'address'  => $companyData['address']['value'] ?? ($companyData['address'] ?? null),
-            'status'   => $companyData['status'] ?? null,
-            'director' => $companyData['director']['name'] ?? ($companyData['director'] ?? null),
+            'inn'      => $inn,
+            'name'     => (string) ($data['НаимСокр'] ?? $data['НаимПолн'] ?? 'Неизвестно'),
+            'ogrn'     => $data['ОГРН'] ?? null,
+            'address'  => $data['ЮрАдрес']['АдресРФ'] ?? null,
+            'status'   => $data['Статус']['Наим'] ?? null,
+            // Руководитель — это массив, берём первого
+            'director' => isset($data['Руковод'][0]['ФИО']) ? $data['Руковод'][0]['ФИО'] : null,
             'raw'      => $decoded,
         ]);
     }
