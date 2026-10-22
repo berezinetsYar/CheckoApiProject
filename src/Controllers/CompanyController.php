@@ -1,5 +1,4 @@
 <?php
-
 declare(strict_types=1);
 
 namespace App\Controllers;
@@ -12,13 +11,9 @@ use OpenApi\Attributes as OA;
 /**
  * Контроллер компаний.
  *
- * Методы принимают ассоциативный массив параметров маршрута
- * и возвращают массив — роутер сериализует его в JSON.
- * Ошибки внешнего API ловятся здесь и превращаются в корректные HTTP-статусы
- * (аналог ExceptionFilterMiddleware / ProblemDetails в ASP.NET Core).
- *
- * Аннотации OpenAPI (zircote/swagger-php) описывают контракт эндпоинта;
- * bin/generate_swagger.php сканирует src/ и собирает public/openapi.json.
+ * Методы принимают параметры маршрута как именованные аргументы
+ * (роутер использует оператор распаковки ...$params).
+ * Ошибки внешнего API ловятся здесь и превращаются в корректные HTTP-статусы.
  */
 #[OA\Info(
     title: 'Checko PHP API',
@@ -89,37 +84,33 @@ final class CompanyController
     /**
      * GET /api/company/{inn}
      *
-     * @param array<string, string> $params Например: ['inn' => '7707083893']
+     * параметр $inn передаётся как именованный аргумент благодаря ...$params в роутере.
+     *
+     * @param string $inn ИНН компании (10 или 12 цифр)
      * @return array<string, mixed>
      */
-    public function getInfo(array $params): array
+    public function getInfo(string $inn): array
     {
-        $inn = trim($params['inn'] ?? '');
-
+        $inn = trim($inn);
+        
         if ($inn === '') {
             http_response_code(400);
-
             return ['error' => 'INN is required'];
         }
-
+        
         if (!preg_match('/^\d{10}(\d{2})?$/', $inn)) {
             http_response_code(400);
-
             return ['error' => 'Invalid INN format', 'inn' => $inn];
         }
 
         try {
             return $this->companyService->getCompanyInfo($inn);
         } catch (ExternalApiException $e) {
-            // 401/404 от внешнего API транслируем как есть, сеть/5xx -> 502.
             http_response_code($e->getClientStatus());
-
             return ['error' => $e->getMessage()];
         } catch (DatabaseException $e) {
-            // Сбой БД — это 5xx; детали (SQL, драйверный код) не отдаём клиенту.
             http_response_code(500);
             error_log('DB error: ' . $e->getMessage() . ' | ' . (string) $e->getPrevious()?->getMessage());
-
             return ['error' => 'Internal server error'];
         }
     }

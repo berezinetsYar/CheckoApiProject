@@ -1,10 +1,10 @@
 <?php
-
 declare(strict_types=1);
 
-/**
- * Точка входа приложения (front controller). Аналог Program.cs.
- */
+// Включаем отображение ошибок для отладки
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
 
 use App\Controllers\CompanyController;
 use App\Container;
@@ -16,7 +16,22 @@ use App\Services\CompanyService;
 require __DIR__ . '/../vendor/autoload.php';
 
 // ---------------------------------------------------------------------------
-// 1. Конфигурация из окружения (docker-compose задаёт эти переменные)
+// 1. ОБСЛУЖИВАНИЕ СТАТИЧЕСКИХ ФАЙЛОВ (для Swagger и фронтенда)
+// ---------------------------------------------------------------------------
+if (PHP_SAPI === 'cli-server') {
+    $uri = $_SERVER['REQUEST_URI'] ?? '/';
+    $path = parse_url($uri, PHP_URL_PATH) ?: '/';
+    $file = __DIR__ . $path;
+    
+    // Если запрашивается реальный файл (swagger.html, openapi.json, client.html), 
+    // возвращаем false, чтобы встроенный сервер PHP отдал его нативно.
+    if (is_file($file)) {
+        return false; 
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2. Конфигурация из окружения
 // ---------------------------------------------------------------------------
 $apiKey  = getenv('CHECKO_API_KEY') ?: 'demo-key';
 $baseUrl = getenv('CHECKO_BASE_URL') ?: 'https://checko.ru/api/company';
@@ -28,64 +43,39 @@ $dbName = getenv('DB_NAME') ?: 'app';
 $dbUser = getenv('DB_USER') ?: 'app';
 $dbPass = getenv('DB_PASS') ?: 'secret';
 
-// Ключ для защиты НАШЕГО API (заголовок X-API-KEY). Пустой = auth выключен.
 $appApiKey = getenv('APP_API_KEY') ?: '';
 
 // ---------------------------------------------------------------------------
-// 2. Мини-DI контейнер (аналог IServiceCollection в упрощённом виде)
+// 3. Мини-DI контейнер
 // ---------------------------------------------------------------------------
 $container = new Container();
 
 $pdoFactory = static function () use ($dbHost, $dbPort, $dbName, $dbUser, $dbPass): PDO {
     $dsn = sprintf('pgsql:host=%s;port=%s;dbname=%s', $dbHost, $dbPort, $dbName);
-
-    try {
-        return new PDO($dsn, $dbUser, $dbPass, [
-            // Все ошибки БД — исключения (в т.ч. PDOException), а не тихие false.
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            // Настоящие prepared statements на стороне PostgreSQL
-            // (без подстановки значений PHP-ом) — защита от SQL-инъекций.
-            PDO::ATTR_EMULATE_PREPARES   => false,
-        ]);
-    } catch (PDOException $e) {
-        throw \App\Exceptions\DatabaseException::connection($e);
-    }
+    return new PDO($dsn, $dbUser, $dbPass, [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES   => false,
+    ]);
 };
 
-if (PHP_SAPI === 'cli' && !str_starts_with($argv[0] ?? '', 'php-cli')) {
-    // В CLI без БД (тест роутинга) используем SQLite in-memory с той же схемой.
-    $pdoFactory = static function (): PDO {
-        $pdo = new PDO('sqlite::memory:', null, null, [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]);
-        $pdo->exec('CREATE TABLE company_cache (inn TEXT PRIMARY KEY, data TEXT NOT NULL, cached_at TEXT NOT NULL)');
-
-        return $pdo;
-    };
-}
-
 $container->bind(PDO::class, $pdoFactory);
-
 $container->bind(CheckoApiClient::class, static fn (): CheckoApiClient => new CheckoApiClient(
     apiKey:  $apiKey,
     baseUrl: $baseUrl,
     useMock: $useMock,
 ));
-
-// Бизнес-сервис и контроллер разрешаются автоматически по type-hint'ам
-// конструктора (autowiring через рефлексию в App\Container).
 $container->bind(CompanyService::class);
 $container->bind(CompanyController::class);
 
 // ---------------------------------------------------------------------------
-// 3. Маршрутизация + middleware
+// 4. Маршрутизация + middleware
 // ---------------------------------------------------------------------------
 $router = new Router($container);
-$auth   = new AuthMiddleware($appApiKey !== '' ? $appApiKey : null, ['/api/']);
+$router->add('GET', '/api/company/{inn}', [CompanyController::class, 'getInfo']);
 
-// Оборачиваем dispatch: сначала auth, затем маршруты.
+$auth = new AuthMiddleware($appApiKey !== '' ? $appApiKey : null, ['/api/']);
+
 $origDispatch = static function () use ($router, $auth): void {
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
     $path   = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
@@ -96,7 +86,7 @@ $origDispatch = static function () use ($router, $auth): void {
     }
 
     if (!$auth->handle($method, $path)) {
-        return; // 401 уже отправлен
+        return;
     }
 
     $router->dispatch();

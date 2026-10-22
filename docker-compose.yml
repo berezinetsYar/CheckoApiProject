@@ -7,6 +7,9 @@ services:
       - ./:/app
     ports:
       - "8080:8080"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       TZ: UTC
       CHECKO_API_KEY: ${CHECKO_API_KEY:-demo-key}
@@ -20,7 +23,7 @@ services:
     depends_on:
       postgresql:
         condition: service_healthy
-    command: php -S 0.0.0.0:8080 -t public
+    command: php -S 0.0.0.0:8080 -t public public/index.php
 
   postgresql:
     image: postgres:16-alpine

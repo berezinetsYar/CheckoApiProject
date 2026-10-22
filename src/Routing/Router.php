@@ -106,7 +106,6 @@ final class Router
     private function callHandler(array $handler, array $params): mixed
     {
         [$class, $action] = $handler;
-
         $controller = $this->container !== null
             ? $this->container->get($class)
             : new $class();
@@ -115,6 +114,7 @@ final class Router
             throw new \RuntimeException(sprintf('Method %s::%s() does not exist', $class, $action));
         }
 
-        return $controller->{$action}($params);
+        // используем оператор распаковки ...
+        return $controller->{$action}(...$params);
     }
 }
