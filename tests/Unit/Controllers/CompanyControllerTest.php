@@ -8,6 +8,7 @@ use App\Controllers\CompanyController;
 use App\Exceptions\DatabaseException;
 use App\Exceptions\ExternalApiException;
 use App\Services\CompanyService;
+use Monolog\Logger;
 use PDO;
 use PDOException;
 use PDOStatement;
@@ -94,7 +95,7 @@ final class CompanyControllerTest extends TestCase
 
     private function callGetInfo(CompanyService $service, string $inn): ResponseCapture
     {
-        $controller = new CompanyController($service);
+        $controller = new CompanyController($service, $this->createMock(Logger::class));
 
         $capture = new ResponseCapture();
         $captured = null;
