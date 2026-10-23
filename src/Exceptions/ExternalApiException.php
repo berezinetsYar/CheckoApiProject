@@ -14,11 +14,12 @@ namespace App\Exceptions;
  */
 final class ExternalApiException extends \RuntimeException
 {
-    public const CODE_UNAUTHORIZED  = 401; // некорректный/отсутствующий API-ключ
-    public const CODE_NOT_FOUND     = 404; // компания с таким ИНН не найдена
-    public const CODE_SERVER_ERROR  = 500; // 5xx на стороне внешнего сервиса
-    public const CODE_BAD_RESPONSE  = 502; // внешний сервис вернул невалидный JSON/HTML
-    public const CODE_NETWORK_ERROR = 503; // соединение недоступно/таймаут
+    public const CODE_UNAUTHORIZED   = 401;
+    public const CODE_NOT_FOUND      = 404;
+    public const CODE_SERVER_ERROR   = 500;
+    public const CODE_BAD_RESPONSE   = 501;
+    public const CODE_NETWORK_ERROR  = 599;
+    public const CODE_INVALID_INPUT  = 422;
 
     public function __construct(
         string $message,
