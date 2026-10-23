@@ -26,9 +26,9 @@ final class CheckoApiClient
         return $this->getCompanyDto($inn)->toArray();
     }
 
-    public function getCompanyDto(string $inn): CompanyDto
+        public function getCompanyDto(string $inn): CompanyDto
     {
-        // Очистка от скрытых пробелов и переносов строк (частая проблема из .env)
+        // 1. Очистка от скрытых пробелов и переносов строк (делаем один раз)
         $cleanInn = trim($inn);
         $cleanApiKey = trim($this->apiKey);
 
@@ -44,15 +44,11 @@ final class CheckoApiClient
         }
 
         try {
-            // Теперь Guzzle корректно склеит base_uri ('.../v2/') и 'company'
+            // 2. Заголовки теперь задаются глобально в методе client()
             $response = $this->client()->request('GET', 'company', [
                 'query' => [
-                    'key' => trim($this->apiKey), // trim на случай скрытых пробелов/переносов
-                    'inn' => trim($inn),
-                ],
-                'headers' => [
-                    'Accept'     => 'application/json',
-                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                    'key' => $cleanApiKey, // Используем уже очищенную переменную
+                    'inn' => $cleanInn,    // Используем уже очищенную переменную
                 ],
                 'timeout' => 10,
             ]);
@@ -61,7 +57,7 @@ final class CheckoApiClient
             $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
 
         } catch (BadResponseException $e) {
-                        $status = $e->getResponse()->getStatusCode();
+            $status = $e->getResponse()->getStatusCode();
             $code   = match (true) {
                 $status === 401 || $status === 403 => ExternalApiException::CODE_UNAUTHORIZED,
                 $status === 404                    => ExternalApiException::CODE_NOT_FOUND,
@@ -100,17 +96,16 @@ final class CheckoApiClient
             );
         }
 
-        // Checko v2 возвращает данные в ключе 'data' с русскими названиями полей
+        // 3. Checko v2 возвращает данные в ключе 'data' с русскими названиями полей
         $data = $decoded['data'] ?? $decoded;
 
         return CompanyDto::fromArray([
             'source'   => 'checko',
-            'inn'      => $inn,
+            'inn'      => $cleanInn, // Используем очищенный ИНН для консистентности
             'name'     => (string) ($data['НаимСокр'] ?? $data['НаимПолн'] ?? 'Неизвестно'),
             'ogrn'     => $data['ОГРН'] ?? null,
             'address'  => $data['ЮрАдрес']['АдресРФ'] ?? null,
             'status'   => $data['Статус']['Наим'] ?? null,
-            // Руководитель — это массив, берём первого
             'director' => isset($data['Руковод'][0]['ФИО']) ? $data['Руковод'][0]['ФИО'] : null,
             'raw'      => $decoded,
         ]);
@@ -120,6 +115,11 @@ final class CheckoApiClient
     {
         return $this->httpClient ??= new Client([
             'base_uri' => rtrim($this->baseUrl, '/') . '/',
+            // Дефолтные заголовки для всех запросов этого клиента
+            'headers' => [
+                'Accept'     => 'application/json',
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            ],
         ]);
     }
 
