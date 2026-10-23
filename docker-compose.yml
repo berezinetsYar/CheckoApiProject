@@ -1,0 +1,48 @@
+services:
+  php:
+    build: .
+    container_name: checko_php
+    working_dir: /app
+    volumes:
+      - ./:/app
+    ports:
+      - "8080:8080"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      TZ: UTC
+      CHECKO_API_KEY: ${CHECKO_API_KEY:-demo-key}
+      CHECKO_BASE_URL: ${CHECKO_BASE_URL:-https://api.checko.ru/v2}
+      CHECKO_USE_MOCK: ${CHECKO_USE_MOCK:-true}
+      APP_API_KEY: ${APP_API_KEY:-}
+      DB_HOST: postgresql
+      DB_PORT: "5432"
+      DB_NAME: app
+      DB_USER: app
+      DB_PASS: secret
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    command: php -S 0.0.0.0:8080 -t public public/index.php
+
+  postgresql:
+    image: postgres:16-alpine
+    container_name: checko_postgres
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

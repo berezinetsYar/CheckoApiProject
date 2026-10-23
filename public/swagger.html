@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checko PHP API — Swagger UI</title>
+    <!-- Swagger UI через CDN (jsdelivr) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+        body { margin: 0; }
+        #loading { padding: 2rem; font-family: sans-serif; color: #555; }
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"><div id="loading">Загрузка спецификации…</div></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+        window.onload = () => {
+            window.ui = SwaggerUIBundle({
+                url: './openapi.json',
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [SwaggerUIBundle.presets.apis],
+                layout: 'BaseLayout',
+                // Автозаполняем X-API-KEY из localStorage, если клиент его сохранял
+                requestInterceptor: (req) => {
+                    const key = localStorage.getItem('apiKey');
+                    if (key && req.url.includes('/api/')) {
+                        req.headers['X-API-KEY'] = key;
+                    }
+                    return req;
+                },
+            });
+        };
+    </script>
+</body>
+</html>

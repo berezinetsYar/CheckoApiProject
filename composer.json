@@ -1,0 +1,25 @@
+{
+    "name": "app/checko-php-api",
+    "description": "Vanilla PHP 8.2 API: данные компаний по ИНН (Checko) с PostgreSQL-кэшем",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "guzzlehttp/guzzle": "^7.8",
+        "zircote/swagger-php": "^6.18"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "scripts": {
+        "post-install-cmd": "composer dump-autoload --optimize",
+        "post-update-cmd": "composer dump-autoload --optimize",
+        "serve": "php -S localhost:8080 -t public",
+        "swagger": "php bin/generate_swagger.php"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
