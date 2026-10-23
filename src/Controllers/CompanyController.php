@@ -6,6 +6,7 @@ namespace App\Controllers;
 use App\Exceptions\DatabaseException;
 use App\Exceptions\ExternalApiException;
 use App\Services\CompanyService;
+use Monolog\Logger;
 use OpenApi\Attributes as OA;
 
 /**
@@ -31,6 +32,7 @@ final class CompanyController
 {
     public function __construct(
         private readonly CompanyService $companyService,
+        private readonly Logger $logger,
     ) {
     }
 
@@ -103,12 +105,25 @@ final class CompanyController
             return ['error' => 'Invalid INN format', 'inn' => $inn];
         }
 
+        $this->logger->info('Company info requested', ['inn' => $inn]);
+        
         try {
             return $this->companyService->getCompanyInfo($inn);
         } catch (ExternalApiException $e) {
+            $this->logger->warning('Checko API error', [
+                'inn' => $inn,
+                'status' => $e->getClientStatus(),
+                'message' => $e->getMessage()
+            ]);
+
             http_response_code($e->getClientStatus());
             return ['error' => $e->getMessage()];
         } catch (DatabaseException $e) {
+            $this->logger->error('Database error in CompanyController', [
+                'inn' => $inn,
+                'message' => $e->getMessage()
+            ]);
+
             http_response_code(500);
             error_log('DB error: ' . $e->getMessage() . ' | ' . (string) $e->getPrevious()?->getMessage());
             return ['error' => 'Internal server error'];

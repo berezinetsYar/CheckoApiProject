@@ -20,7 +20,7 @@ final class DatabaseException extends \RuntimeException
 
     public static function connection(PDOException $previous): self
     {
-        $e              = new self('Database connection failed', self::CODE_CONNECTION, 0, $previous);
+        $e              = new self('Database connection failed', self::CODE_CONNECTION, $previous);
         $e->dbCode      = (int) ($previous->errorInfo[1] ?? 0);
 
         return $e;
@@ -28,7 +28,7 @@ final class DatabaseException extends \RuntimeException
 
     public static function query(PDOException $previous): self
     {
-        $e              = new self('Database query failed', self::CODE_QUERY, 0, $previous);
+        $e              = new self('Database query failed', self::CODE_QUERY, $previous);
         $e->dbCode      = (int) ($previous->errorInfo[1] ?? 0);
 
         return $e;
@@ -36,7 +36,7 @@ final class DatabaseException extends \RuntimeException
 
     public static function json(\JsonException $previous): self
     {
-        return new self('Cached payload is not valid JSON', self::CODE_JSON, 0, $previous);
+        return new self('Cached payload is not valid JSON', self::CODE_JSON, $previous);
     }
 
     /** Нативный код ошибки драйвера (pgsql), если доступен. */

@@ -12,6 +12,10 @@ use App\HttpClient\CheckoApiClient;
 use App\Routing\AuthMiddleware;
 use App\Routing\Router;
 use App\Services\CompanyService;
+use Monolog\Logger;
+use Monolog\Handler\StreamHandler;
+use Monolog\Handler\RotatingFileHandler;
+use Monolog\Level;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -66,6 +70,22 @@ $container->bind(CheckoApiClient::class, static fn (): CheckoApiClient => new Ch
     useMock: $useMock,
 ));
 $container->bind(CompanyService::class);
+
+// =============================================================================
+// 3.1. Инициализация и регистрация Monolog (Логирование)
+// =============================================================================
+$logDir = __DIR__ . '/../var/log';
+if (!is_dir($logDir)) {
+    mkdir($logDir, 0777, true);
+}
+
+$logger = new Logger('app');
+$logger->pushHandler(new RotatingFileHandler($logDir . '/app.log', 7, Level::Info));
+
+// Регистрируем в DI-контейнере. Теперь Container сможет внедрить его в контроллер.
+$container->bind(Logger::class, fn() => $logger);
+// =============================================================================
+
 $container->bind(CompanyController::class);
 
 // ---------------------------------------------------------------------------
