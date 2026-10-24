@@ -1,10 +1,18 @@
 <?php
 declare(strict_types=1);
 
-// Включаем отображение ошибок для отладки
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
-error_reporting(E_ALL);
+// Конфигурация ошибок: показываем только в dev-режиме
+$isDebug = filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN);
+
+if ($isDebug) {
+    ini_set('display_errors', '1');
+    ini_set('display_startup_errors', '1');
+    error_reporting(E_ALL);
+} else {
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
+}
 
 use App\Controllers\CompanyController;
 use App\Container;

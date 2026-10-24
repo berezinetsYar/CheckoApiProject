@@ -131,15 +131,17 @@ final class CompanyControllerTest extends TestCase
 
     #[Test]
     #[DataProvider('invalidInnProvider')]
-    public function invalidInnProduces400WithoutTouchingDependencies(string $inn): void
+    public function invalidInnProduces422ForInvalidInn(string $inn): void
     {
-        // Пустая очередь HTTP: любой запрос к Checko уронил бы тест через MockHandler.
+        // Сервис с пустой очередью: клиент бросит ExternalApiException(CODE_INVALID_INPUT)
+        // до того, как сделает HTTP-запрос, поэтому MockHandler не упадёт.
         $capture = $this->callGetInfo($this->serviceWith(), $inn);
-
+        
         $this->assertArrayHasKey('error', $this->lastResult);
-
+        $this->assertSame('Invalid INN format: expected 10 or 12 digits', $this->lastResult['error']);
+        
         if (ResponseCapture::canPatchHttp()) {
-            $this->assertSame(400, $capture->status);
+            $this->assertSame(422, $capture->status);
         }
     }
 
@@ -159,20 +161,18 @@ final class CompanyControllerTest extends TestCase
     }
 
     #[Test]
-    public function emptyInnErrorMessageIsSpecific(): void
+    public function emptyInnReturns422WithClientMessage(): void
     {
         $this->callGetInfo($this->serviceWith(), '');
-
-        $this->assertSame(['error' => 'INN is required'], $this->lastResult);
+        $this->assertSame(['error' => 'Invalid INN format: expected 10 or 12 digits'], $this->lastResult);
     }
 
     #[Test]
-    public function malformedInnErrorIncludesEchoedValue(): void
+    public function malformedInnReturns422WithClientMessage(): void
     {
         $this->callGetInfo($this->serviceWith(), '123');
-
-        $this->assertSame('Invalid INN format', $this->lastResult['error']);
-        $this->assertSame('123', $this->lastResult['inn']);
+        $this->assertSame('Invalid INN format: expected 10 or 12 digits', $this->lastResult['error']);
+        // ИНН не возвращается в ответе, так как валидация происходит на стороне клиента
     }
 
     #[Test]
