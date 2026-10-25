@@ -43,11 +43,11 @@ final class CompanyServiceTest extends TestCase
         return CompanyDto::fromArray([
             'source'   => 'checko',
             'inn'      => self::INN,
-            'name'     => 'АО "ГСК "ЮГОРИЯ""',
-            'ogrn'     => '1048600005728',
-            'address'  => 'г. Ханты-Мансийск, ул. Комсомольская, зд. 61',
+            'name'     => 'ООО "Тестовая Компания"',
+            'ogrn'     => '1027700132195',
+            'address'  => '123456, г. Москва, ул. Примерная, д. 1, офис 10',
             'status'   => 'Действует',
-            'director' => 'Языков Андрей Дмитриевич',
+            'director' => 'Иванов Иван Иванович',
         ]);
     }
 
@@ -110,14 +110,14 @@ final class CompanyServiceTest extends TestCase
         $pdo = $this->createPdo($select);
 
         // Ни одного ответа в очереди клиента нет: если бы запрос к API состоялся,
-        // Guzzle MockHandler бросил быOutOfBoundsException — тест упал бы.
+        // Guzzle MockHandler бросил бы OutOfBoundsException — тест упал бы.
         $apiClient = FakeHttp::clientWithResponses([]);
 
         $service = new CompanyService($apiClient, $pdo);
         $result = $service->getCompanyInfo(self::INN);
 
         $this->assertTrue($result['cached']);
-        $this->assertSame('АО "ГСК "ЮГОРИЯ""', $result['company']['name']);
+        $this->assertSame('ООО "Тестовая Компания"', $result['company']['name']);
         $this->assertSame(self::INN, $result['company']['inn']);
         $this->assertCount(1, $this->preparedSql, 'Только SELECT: без API и без записи');
     }
@@ -167,7 +167,7 @@ final class CompanyServiceTest extends TestCase
         $this->assertFalse($result['cached']);
         $this->assertSame(self::INN, $bound[':inn']);
         $decodedData = json_decode((string) $bound[':data'], true);
-        $this->assertSame('АО "ГСК "ЮГОРИЯ""', $decodedData['name']);
+        $this->assertSame('ООО "Тестовая Компания"', $decodedData['name']);
     }
 
     #[Test]

@@ -11,17 +11,17 @@ services:
       - 8.8.8.8
       - 1.1.1.1
     environment:
-      APP_DEBUG: =${APP_DEBUG:-false}
+      APP_DEBUG: ${APP_DEBUG:-false}
       TZ: UTC
       CHECKO_API_KEY: ${CHECKO_API_KEY:-demo-key}
       CHECKO_BASE_URL: ${CHECKO_BASE_URL:-https://api.checko.ru/v2}
       CHECKO_USE_MOCK: ${CHECKO_USE_MOCK:-true}
       APP_API_KEY: ${APP_API_KEY:-}
-      DB_HOST: postgresql
-      DB_PORT: "5432"
-      DB_NAME: app
-      DB_USER: app
-      DB_PASS: secret
+      DB_HOST: ${DB_HOST:-postgresql}
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_NAME: ${DB_NAME:-app}
+      DB_USER: ${DB_USER:-app}
+      DB_PASS: ${DB_PASS:-secret}
     depends_on:
       postgresql:
         condition: service_healthy

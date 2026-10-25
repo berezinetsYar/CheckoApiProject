@@ -75,11 +75,11 @@ final class CompanyControllerTest extends TestCase
         $dto = \App\Dto\CompanyDto::fromArray([
             'source'   => 'checko',
             'inn'      => self::INN,
-            'name'     => 'АО "ГСК "ЮГОРИЯ""',
-            'ogrn'     => '1048600005728',
-            'address'  => 'г. Ханты-Мансийск, ул. Комсомольская, зд. 61',
+            'name'     => 'ООО "Тестовая Компания"',
+            'ogrn'     => '1027700132195',
+            'address'  => '123456, г. Москва, ул. Примерная, д. 1, офис 10',
             'status'   => 'Действует',
-            'director' => 'Языков Андрей Дмитриевич',
+            'director' => 'Иванов Иван Иванович',
         ]);
 
         $stmt = $this->createMock(PDOStatement::class);
@@ -115,7 +115,7 @@ final class CompanyControllerTest extends TestCase
         $this->assertArrayHasKey('company', $this->lastResult);
         $this->assertArrayHasKey('cached', $this->lastResult);
         $this->assertFalse($this->lastResult['cached']);
-        $this->assertSame('АО "ГСК "ЮГОРИЯ""', $this->lastResult['company']['name']);
+        $this->assertSame('ООО "Тестовая Компания"', $this->lastResult['company']['name']);
         $this->assertSame(self::INN, $this->lastResult['company']['inn']);
         $this->assertSame('', $capture->body, 'Контроллер не печатает вывод — это делает Router');
     }

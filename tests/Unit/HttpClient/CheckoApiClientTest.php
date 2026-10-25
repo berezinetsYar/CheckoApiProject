@@ -204,9 +204,10 @@ final class CheckoApiClientTest extends TestCase
     #[Test]
     public function networkFailureThrowsNetworkErrorCode(): void
     {
-        [$client] = $this->clientWithQueue(
-            new ConnectException('Connection refused', new Request('GET', 'company'))
-        );
+        $exception = new ConnectException('Connection refused', new Request('GET', 'company'));
+        
+        // передаём исключение 3 раза (1 основной запрос + 2 retry)
+        [$client] = $this->clientWithQueue($exception, $exception, $exception);
 
         try {
             $client->getCompanyDto(self::INN_10);
