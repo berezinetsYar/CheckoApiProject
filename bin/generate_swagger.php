@@ -1,39 +1,22 @@
-#!/usr/bin/env php
 <?php
-
 declare(strict_types=1);
-
-/**
- * Генерация OpenAPI-спецификации из аннотаций/атрибутов zircote/swagger-php.
- *
- * Сканирует src/ и сохраняет результат в public/openapi.json.
- * Запуск:  php bin/generate_swagger.php   (или composer swagger)
- */
 
 require __DIR__ . '/../vendor/autoload.php';
 
 use OpenApi\Generator;
 
-$srcDir    = dirname(__DIR__) . '/src';
-$outFile   = dirname(__DIR__) . '/public/openapi.json';
+// Пути для сканирования OA-атрибутов
+$paths = [
+    __DIR__ . '/../src/Controllers',
+];
 
-if (!is_dir($srcDir)) {
-    fwrite(STDERR, "Source directory not found: {$srcDir}\n");
-    exit(1);
-}
+// Генерация спецификации
+$generator = new Generator();
+$openapi = $generator->generate($paths);
 
-try {
-    $openapi = Generator::scan([$srcDir]);
-} catch (\Throwable $e) {
-    fwrite(STDERR, 'Swagger generation failed: ' . $e->getMessage() . "\n");
-    exit(1);
-}
+// Запись в public/openapi.json
+$outputPath = __DIR__ . '/../public/openapi.json';
+file_put_contents($outputPath, $openapi->toJson());
 
-$json = $openapi->toJson(JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-
-if (file_put_contents($outFile, $json . PHP_EOL) === false) {
-    fwrite(STDERR, "Failed to write {$outFile}\n");
-    exit(1);
-}
-
-printf("OpenAPI spec written to %s (%d bytes)\n", $outFile, strlen($json));
+echo "✅ OpenAPI spec written to {$outputPath}\n";
+echo "📏 Size: " . filesize($outputPath) . " bytes\n";

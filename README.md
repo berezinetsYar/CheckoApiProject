@@ -2,16 +2,17 @@
 
 **REST API на Vanilla PHP 8.2** (без фреймворков, по духу — аналог ASP.NET Core Minimal API) для получения реквизитов российских компаний по ИНН через внешний сервис **Checko API v2** с кэшированием ответов в **PostgreSQL**.
 
-> 🧑‍💻 Проект написан как тестовое задание и ориентирован на .NET-разработчика: в коде и документации везде проводятся аналогии с ASP.NET Core (`Program.cs`, `IServiceProvider`, middleware pipeline, DTO-records, Swashbuckle).
+> 🧑‍💻 Проект написан как тестовое задание и ориентирован на .NET-разработчика: в коде и документации везде проводятся аналогии с ASP.NET Core (`Program.cs`, `IServiceProvider`, middleware pipeline, DTO-records, Swashbuckle, xUnit).
 
 ### ✨ Ключевые особенности
 
 - ⚡ **Front Controller + мини-DI контейнер** с autowiring — без Laravel/Symfony, только чистый PHP 8.2
 - 🔌 **Интеграция с Checko API v2** через Guzzle с нормализацией ответа (русские ключи JSON → типизированный `CompanyDto`)
-- 🗄 **Cache-aside** в PostgreSQL 16 (таблица `company_cache`, JSONB, TTL 1 час, UPSERT)
-- 🔐 **AuthMiddleware** — защита по заголовку `X-API-KEY` с `hash_equals()` (защита от timing-атак)
+- 🗄 **Cache-aside** в PostgreSQL 16 (таблица `company_cache`, JSONB, UPSERT)
+- 🔐 **AuthMiddleware** — защита по заголовку `X-API-KEY` с `hash_equals()` (защита от timing-attacks)
 - 📖 **Swagger/OpenAPI** из атрибутов `#[OA\...]` (zircote/swagger-php) — аналог Swashbuckle
-- 🧪 **Mock-режим** (`CHECKO_USE_MOCK=true`) — разработка без реального API-ключа Checko
+- 🧪 **94 юнит-теста** (PHPUnit 10) с полной изоляцией зависимостей (Guzzle `MockHandler`, PDO mocks)
+- 📝 **Профессиональное логирование** через Monolog с автоматической ротацией файлов (`RotatingFileHandler`, аналог Serilog/NLog)
 - 🐳 **Docker Compose**: один `up` поднимает PHP-сервер и PostgreSQL со схемой БД
 
 ---
@@ -20,7 +21,7 @@
 
 ### Схема обработки запроса
 
-```
+```text
 Клиент ──HTTP──▶ public/index.php (front controller / «Program.cs»)
                       │
                       ├─▶ AuthMiddleware («AuthorizationMiddleware»)
@@ -43,6 +44,8 @@
                                       │
                                       ▼
                               CompanyDto → UPSERT в кэш → JSON-ответ
+                              
+                        [Параллельно: Monolog записывает INFO/WARNING/ERROR в /var/log]
 ```
 
 ### Таблица соответствия компонентов .NET ↔ PHP
@@ -56,40 +59,41 @@
 | `App\Controllers\CompanyController` | `[ApiController]` |
 | `App\Services\CompanyService` | Service layer |
 | `App\HttpClient\CheckoApiClient` (Guzzle) | `HttpClient` + `IHttpClientFactory` |
-| `App\Dto\CompanyDto` | DTO / Record |
+| `App\Dto\CompanyDto` | DTO / `record` |
 | `App\Exceptions\ExternalApiException` | Custom Exception + ExceptionFilter |
 | `zircote/swagger-php` (атрибуты `#[OA\...]`) | `Swashbuckle` / `NSwag` |
+| `Monolog\Logger` | `ILogger<T>` / Serilog |
+| `PHPUnit` | xUnit / NUnit |
 | `public/swagger.html` + `openapi.json` | `app.UseSwaggerUI()` |
-| `public/client.html` | Простой HTML+JS клиент |
 | PostgreSQL 16 + таблица `company_cache` | SQL Server + кэш-таблица |
 | `docker-compose.yml` (php + postgresql) | `docker-compose.yml` для .NET + SQL |
 
 ### Использованные паттерны
 
-- **Front Controller** — все HTTP-запросы проходят через `public/index.php`: там конфигурация из окружения, построение DI-контейнера, подключение middleware и роутера (как весь bootstrap в `Program.cs`).
-- **Dependency Injection** — `App\Container` регистрирует фабрики (`PDO`, `CheckoApiClient`) и разрешает зависимости конструкторов рефлексией (аналог `builder.Services.AddSingleton<T>()` + `GetRequiredService<T>()`).
+- **Front Controller** — все HTTP-запросы проходят через `public/index.php`: там конфигурация из окружения, построение DI-контейнера, подключение middleware и роутера.
+- **Dependency Injection** — `App\Container` регистрирует фабрики (`PDO`, `CheckoApiClient`, `Logger`) и разрешает зависимости конструкторов рефлексией (аналог `builder.Services.AddSingleton<T>()` + `GetRequiredService<T>()`).
 - **Middleware** — `AuthMiddleware::handle()` вызывается перед диспетчеризацией роута; вернул `false` — обработка запроса остановлена (аналог `app.Use(...)` c `return` без `next(context)`).
-- **Cache-Aside** — `CompanyService` сначала читает кэш, при промахе обращается к внешнему API и пишет результат в БД (UPSERT). Ошибка записи в кэш не роняет ответ — данные уже получены из API.
-- **DTO на границе системы** — «бесформенный» JSON Checko парсится один раз в `CompanyDto` (readonly-класс, аналог C# `record`); дальше по коду ходит только типизированные данные.
+- **Cache-Aside** — `CompanyService` сначала читает кэш, при промахе обращается к внешнему API и пишет результат в БД (UPSERT).
+- **DTO на границе системы** — «бесформенный» JSON Checko парсится один раз в `CompanyDto` (readonly-класс, аналог C# `record`); дальше по коду ходят только типизированные данные.
 
 ---
 
 ## 📂 Структура проекта
 
-```
+```text
 /workspace/
 ├── public/
-│   ├── index.php              # Точка входа (front controller): конфиг, DI, роутинг, статика
+│   ├── index.php              # Точка входа: конфиг, DI, роутинг, статика
 │   ├── swagger.html           # Swagger UI (CDN, загружает openapi.json)
 │   ├── client.html            # Простой HTML-клиент для ручных проверок
 │   ├── router.php             # Роутер для встроенного PHP-сервера (отдача статики)
-│   └── openapi.json           # Сгенерированная Swagger-спецификация (в .gitignore)
+│   └── openapi.json           # Сгенерированная Swagger-спецификация
 ├── src/
 │   ├── Container.php          # Мини-DI контейнер с autowiring
 │   ├── Controllers/
-│   │   └── CompanyController.php  # GET /api/company/{inn} + OA-атрибуты
+│   │   └── CompanyController.php  # GET /api/company/{inn} + OA-атрибуты + логирование
 │   ├── Services/
-│   │   └── CompanyService.php     # Логика: кэш (TTL 1ч) → API → UPSERT в кэш
+│   │   └── CompanyService.php     # Логика: кэш → API → UPSERT в кэш
 │   ├── HttpClient/
 │   │   └── CheckoApiClient.php    # Guzzle-клиент Checko API v2 + mock-режим
 │   ├── Dto/
@@ -100,6 +104,11 @@
 │   └── Exceptions/
 │       ├── ExternalApiException.php   # Ошибки Checko → HTTP 401/404/502
 │       └── DatabaseException.php      # Ошибки PDO → HTTP 500
+├── tests/                     # 🧪 Юнит-тесты (PHPUnit 10)
+│   ├── Unit/                  # Модульные тесты (Controllers, Services, HttpClient, Dto)
+│   └── Support/               # Тестовые хелперы (FakeHttp, ResponseCapture)
+├── var/
+│   └── log/                   # 📝 Логи приложения (app-YYYY-MM-DD.log, ротация 7 дней)
 ├── database/
 │   └── schema.sql             # CREATE TABLE company_cache (монтируется в initdb)
 ├── bin/
@@ -107,7 +116,8 @@
 │   └── init.sh                # composer install + dump-autoload --optimize
 ├── docker-compose.yml         # Сервисы: php (checko_php) + postgresql (checko_postgres)
 ├── Dockerfile                 # PHP 8.2 CLI Alpine + pdo_pgsql, curl, opcache
-├── composer.json              # Зависимости: guzzlehttp/guzzle, zircote/swagger-php
+├── composer.json              # Зависимости: guzzle, swagger-php, monolog, phpunit
+├── phpunit.xml.dist           # Конфигурация тестового фреймворка
 └── README.md                  # ← этот файл
 ```
 
@@ -137,7 +147,7 @@ EOF
 # 3. Поднять контейнеры (php + postgresql), схема БД применится автоматически
 docker compose up -d --build
 
-# 4. Установить PHP-зависимости внутри контейнера
+# 4. Установить PHP-зависимости внутри контейнера (включая dev-зависимости для тестов)
 docker exec -it checko_php composer install
 
 # 5. Сгенерировать OpenAPI-спецификацию (public/openapi.json для Swagger UI)
@@ -173,16 +183,73 @@ curl -H "X-API-KEY: мой_секретный_ключ" http://localhost:8080/ap
 | `DB_USER` | `app` | Пользователь БД |
 | `DB_PASS` | `secret` | Пароль БД |
 
-### Пример `.env`
+---
+
+## 🧪 Тестирование
+
+Проект покрыт **94 юнит-тестами (212 ассертов)**, написанными на PHPUnit 10 с использованием современных атрибутов (`#[Test]`, `#[DataProvider]`).
+
+### Автоматизированное тестирование (Unit Tests)
+
+Тесты полностью изолированы: внешние HTTP-запросы мокаются через Guzzle `MockHandler`, а работа с БД — через моки `PDO`/`PDOStatement`. Реальные сетевые вызовы или обращения к БД не выполняются.
 
 ```bash
-# Реальный режим работы с Checko
-CHECKO_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-CHECKO_BASE_URL=https://api.checko.ru/v2
-CHECKO_USE_MOCK=false
+# Запуск всех тестов
+docker exec -it checko_php vendor/bin/phpunit
 
-# Наш секретный ключ для заголовка X-API-KEY
-APP_API_KEY=my-super-secret-key-123
+# Запуск с красивым, читаемым выводом (рекомендуется)
+docker exec -it checko_php vendor/bin/phpunit --testdox
+
+# Запуск конкретного тест-класса
+docker exec -it checko_php vendor/bin/phpunit tests/Unit/HttpClient/CheckoApiClientTest.php
+```
+
+### Ручное тестирование API
+
+**1. Mock-режим (без реального ключа Checko):**
+По умолчанию `CHECKO_USE_MOCK=true` — запросы к Checko не уходят, возвращается заглушка:
+```bash
+curl -H "X-API-KEY: my-super-secret-key-123" http://localhost:8080/api/company/7707083893
+# => {"company":{"source":"mock","inn":"7707083893","name":"ООО «Заглушка»",...},"cached":false}
+```
+
+**2. Проверка кэширования (два запроса → `cached: true`):**
+```bash
+# Первый запрос — из API (или mock), кладём в кэш
+curl -s -H "X-API-KEY: my-super-secret-key-123" http://localhost:8080/api/company/7707083893 | grep -o '"cached":[a-z]*'
+# => "cached":false
+
+# Второй запрос (в пределах TTL) — берём из PostgreSQL
+curl -s -H "X-API-KEY: my-super-secret-key-123" http://localhost:8080/api/company/7707083893 | grep -o '"cached":[a-z]*'
+# => "cached":true
+```
+
+**3. Проверка содержимого кэша и очистка:**
+```bash
+# Посмотреть записи кэша
+docker exec -it checko_postgres psql -U app -d app -c "SELECT inn, cached_at FROM company_cache;"
+
+# Очистить кэш (следующий запрос снова вернёт cached: false)
+docker exec -it checko_postgres psql -U app -d app -c "DELETE FROM company_cache;"
+```
+
+---
+
+## 📝 Логирование (Observability)
+
+Проект использует **Monolog** (стандарт де-факто в PHP, аналог `Serilog`/`NLog` в .NET) для записи событий приложения.
+
+- **Уровни логирования:** `INFO` (успешные запросы), `WARNING` (ошибки Checko API: 401, 404, 5xx), `ERROR` (сбои БД).
+- **Ротация:** Используется `RotatingFileHandler`. Логи автоматически сохраняются в файлы с датой (например, `app-2026-10-24.log`) и хранятся за последние **7 дней**, предотвращая переполнение диска.
+- **Расположение:** `/app/var/log/` внутри контейнера.
+
+**Как посмотреть логи:**
+```bash
+# Просмотр всех файлов логов (с учетом ротации по датам)
+docker exec -it checko_php sh -c "cat /app/var/log/app*.log"
+
+# Отслеживание логов в реальном времени (tail)
+docker exec -it checko_php tail -f /app/var/log/app*.log
 ```
 
 ---
@@ -205,14 +272,11 @@ APP_API_KEY=my-super-secret-key-123
 ```bash
 # Юридическое лицо (10 цифр)
 curl -H "X-API-KEY: my-super-secret-key-123" \
-     http://localhost:8080/api/company/8601023568
+     http://localhost:8080/api/company/7707083893
 
 # ИП (12 цифр)
 curl -H "X-API-KEY: my-super-secret-key-123" \
-     http://localhost:8080/api/company/770118255589
-
-# Через Swagger UI можно выполнять прямо из браузера:
-# http://localhost:8080/swagger.html
+     http://localhost:8080/api/company/770000000000
 ```
 
 **Успешный ответ — `200 OK`** (свежие данные из Checko):
@@ -221,12 +285,12 @@ curl -H "X-API-KEY: my-super-secret-key-123" \
 {
   "company": {
     "source": "checko",
-    "inn": "8601023568",
-    "name": "АО \"ГСК \"ЮГОРИЯ\"",
-    "ogrn": "1048600005728",
-    "address": "628011, Ханты-Мансийский автономный округ - Югра, г. Ханты-Мансийск, ул. Комсомольская, зд. 61",
+    "inn": "7707083893",
+    "name": "ООО \"Тестовая Компания\"",
+    "ogrn": "1027700132195",
+    "address": "123456, г. Москва, ул. Примерная, д. 1, офис 10",
     "status": "Действует",
-    "director": "Языков Андрей Дмитриевич"
+    "director": "Иванов Иван Иванович"
   },
   "cached": false
 }
@@ -249,101 +313,7 @@ curl -H "X-API-KEY: my-super-secret-key-123" \
 | `500` | Внутренняя ошибка (сбой БД) | `{"error": "Internal server error"}` |
 | `502` | Checko API недоступен (таймаут, 5xx, битый JSON) | `{"error": "Checko API is unreachable: ..."}` |
 
-### 🌐 Особенности интеграции с Checko API v2
-
-Официальная документация: `https://api.checko.ru/v2/company?key=API_KEY&inn=COMPANY_INN`
-
-1. **Guzzle `base_uri`**: `https://api.checko.ru/v2/` + относительный путь `'company'` — **без ведущего `/`**, иначе Guzzle отбросит префикс `/v2`.
-2. **Query-параметры**: `key` (API-ключ Checko) и `inn` — именно так, как в документации.
-3. **Русские ключи в ответе**: Checko v2 возвращает JSON с русскими именами полей, завёрнутыми в ключ `data` (не `company`):
-
-   | Поле Checko | Поле DTO |
-   |-------------|----------|
-   | `НаимСокр` | `name` |
-   | `ОГРН` | `ogrn` |
-   | `ЮрАдрес.АдресРФ` | `address` |
-   | `Статус.Наим` | `status` |
-   | `Руковод[0].ФИО` (массив — берём первого) | `director` |
-
-4. **Mock-режим**: `CHECKO_USE_MOCK=true` включает заглушку без реальных сетевых запросов (для разработки и тестов).
-5. **Заголовки**: отправляется браузерный `User-Agent` для обхода WAF на стороне Checko.
-
-### 🗄 Кэширование в PostgreSQL
-
-Таблица `company_cache` (создаётся автоматически при первом старте контейнера `postgresql` из `database/schema.sql`):
-
-```sql
-CREATE TABLE IF NOT EXISTS company_cache (
-    inn        VARCHAR(12) PRIMARY KEY,
-    data       JSONB       NOT NULL,
-    cached_at  TIMESTAMP   NOT NULL DEFAULT now()
-);
-```
-
-Логика `CompanyService` (Cache-Aside, TTL = 1 час):
-
-1. `SELECT data, cached_at FROM company_cache WHERE inn = :inn` — проверка свежего кэша;
-2. запись есть и моложе TTL → вернуть с `cached: true`;
-3. промах → запрос к Checko API через `CheckoApiClient`;
-4. `INSERT ... ON CONFLICT (inn) DO UPDATE` (UPSERT) — атомарное сохранение;
-5. вернуть с `cached: false`.
-
----
-
-## 🧪 Тестирование
-
-### Mock-режим (без реального ключа Checko)
-
-По умолчанию `CHECKO_USE_MOCK=true` в `docker-compose.yml` — запросы к Checko не уходят, возвращается заглушка:
-
-```bash
-curl -H "X-API-KEY: my-super-secret-key-123" \
-     http://localhost:8080/api/company/7707083893
-# => {"company":{"source":"mock","inn":"7707083893","name":"ПАО «Заглушка»",...},"cached":false}
-```
-
-### Проверка кэширования (два запроса → `cached: true`)
-
-```bash
-# Первый запрос — из API (или mock), кладём в кэш
-curl -s -H "X-API-KEY: my-super-secret-key-123" \
-     http://localhost:8080/api/company/7707083893 | grep -o '"cached":[a-z]*'
-# => "cached":false
-
-# Второй запрос (в пределах TTL 1 часа) — берём из PostgreSQL
-curl -s -H "X-API-KEY: my-super-secret-key-123" \
-     http://localhost:8080/api/company/7707083893 | grep -o '"cached":[a-z]*'
-# => "cached":true
-```
-
-### Проверка содержимого кэша и очистка
-
-```bash
-# Посмотреть записи кэша
-docker exec -it checko_postgres psql -U app -d app \
-  -c "SELECT inn, cached_at FROM company_cache;"
-
-# Очистить кэш (следующий запрос снова вернёт cached: false)
-docker exec -it checko_postgres psql -U app -d app -c "DELETE FROM company_cache;"
-```
-
-### Проверка авторизации
-
-```bash
-# Без ключа => 401 Unauthorized
-curl -i http://localhost:8080/api/company/7707083893
-
-# Если APP_API_KEY не задан (пусто) — авторизация отключена (dev-режим), пустой запрос пройдёт
-```
-
-### Регенерация Swagger-спецификации
-
-После изменения OA-атрибутов в контроллере:
-
-```bash
-docker exec -it checko_php php bin/generate_swagger.php
-# => OpenAPI spec written to /app/public/openapi.json
-```
+*(Подробности маппинга русских ключей Checko и логики UPSERT см. в исходном коде `CheckoApiClient.php` и `CompanyService.php`)*
 
 ---
 
@@ -351,12 +321,11 @@ docker exec -it checko_php php bin/generate_swagger.php
 
 | Симптом | Причина и решение |
 |---------|-------------------|
-| `Bind for 0.0.0.0:8080 failed: port is already allocated` | Порт 8080 занят другим процессом → измените маппинг в `docker-compose.yml` (секция `ports: - "8081:8080"` сервиса `php`) |
-| `PDOException: could not connect to server` | `DB_HOST` должен быть равен имени сервиса **`postgresql`**, а не `localhost` (контейнеры общаются через Docker-сеть по именам сервисов). Также дождитесь готовности БД: `docker logs checko_postgres` |
-| `Class "App\..." not found` | Не установлены зависимости / нет автозагрузчика → выполните `docker exec -it checko_php composer install`, затем `docker exec -it checko_php composer dump-autoload` |
+| `Bind for 0.0.0.0:8080 failed: port is already allocated` | Порт 8080 занят → измените маппинг в `docker-compose.yml` (секция `ports: - "8081:8080"` сервиса `php`) |
+| `PDOException: could not connect to server` | `DB_HOST` должен быть равен имени сервиса **`postgresql`**, а не `localhost`. Также дождитесь готовности БД: `docker logs checko_postgres` |
+| `Class "App\..." not found` | Не установлены зависимости → выполните `docker exec -it checko_php composer install`, затем `composer dump-autoload` |
 | `Checko API responded with HTTP 404` | Проверьте, что путь в Guzzle **относительный** — `'company'`, а не `'/company'` (ведущий слэш заставляет Guzzle отбросить `/v2` из `base_uri`) |
-| Swagger UI пустой / не открывается | Убедитесь, что сгенерирован `public/openapi.json` (`php bin/generate_swagger.php`) и что front controller `public/index.php` содержит блок обслуживания статики (возврат `false` для реальных файлов в режиме `cli-server`) |
-| Ответ всегда `cached: false` | Сработал TTL (1 час) или запись не сохраняется — проверьте `docker logs checko_php` на ошибки UPSERT и содержимое таблицы `company_cache` |
+| **Странные ответы или ошибки 500** | **Проверьте логи приложения:** `docker exec -it checko_php sh -c "cat /app/var/log/app*.log"` |
 | Ошибки DNS при обращении к api.checko.ru | В `docker-compose.yml` сервиса `php` уже заданы `dns: [8.8.8.8, 1.1.1.1]`; проверьте сетевой доступ хоста |
 
 ---
@@ -365,17 +334,17 @@ docker exec -it checko_php php bin/generate_swagger.php
 
 | Технология | Версия | Назначение |
 |------------|--------|-----------|
-| PHP | 8.2 (`php:8.2-cli-alpine`) | Язык; strict types, readonly-классы, enum-подобные константы, атрибуты |
+| PHP | 8.2 (`php:8.2-cli-alpine`) | Язык; strict types, readonly-классы, атрибуты |
 | Composer | 2.x | Зависимости и PSR-4 автозагрузка (`App\` → `src/`) |
 | PostgreSQL | 16 (`postgres:16-alpine`) | Хранилище кэша (JSONB, UPSERT `ON CONFLICT`) |
 | Guzzle | `^7.8` | HTTP-клиент для Checko API (аналог `HttpClient`/`IHttpClientFactory`) |
-| zircote/swagger-php | `^6.18` | Генерация OpenAPI 3 из атрибутов `#[OA\...]` (аналог Swashbuckle) |
+| zircote/swagger-php | `^4.x` | Генерация OpenAPI 3 из атрибутов `#[OA\...]` |
+| **Monolog** | `^3.7` | **Библиотека для логирования с ротацией (аналог Serilog/NLog)** |
+| **PHPUnit** | `^10.5` | **Фреймворк для юнит-тестирования (аналог xUnit/NUnit)** |
 | Docker / Docker Compose | v2 | Окружение: `checko_php` + `checko_postgres` |
-| PDO (`pdo_pgsql`) | встроенное | Доступ к PostgreSQL с prepared statements |
-| Swagger UI | CDN | Интерактивная документация (`public/swagger.html`) |
 
 ---
 
 ## 📄 Лицензия
 
-MIT — код опубликован в рамках тестового задания. Ключи API Checko являются конфиденциальными и в репозиторий не коммитятся (`.env` исключён из Git).
+MIT — код опубликован в рамках тестового задания. Ключи API Checko являются конфиденциальными и в репозиторий не коммитятся (`.env` и `var/log/` исключены из Git через `.gitignore`).

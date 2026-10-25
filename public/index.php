@@ -1,10 +1,18 @@
 <?php
 declare(strict_types=1);
 
-// Включаем отображение ошибок для отладки
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
-error_reporting(E_ALL);
+// Конфигурация ошибок: показываем только в dev-режиме
+$isDebug = filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN);
+
+if ($isDebug) {
+    ini_set('display_errors', '1');
+    ini_set('display_startup_errors', '1');
+    error_reporting(E_ALL);
+} else {
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
+}
 
 use App\Controllers\CompanyController;
 use App\Container;
@@ -12,6 +20,10 @@ use App\HttpClient\CheckoApiClient;
 use App\Routing\AuthMiddleware;
 use App\Routing\Router;
 use App\Services\CompanyService;
+use Monolog\Logger;
+use Monolog\Handler\StreamHandler;
+use Monolog\Handler\RotatingFileHandler;
+use Monolog\Level;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -66,6 +78,22 @@ $container->bind(CheckoApiClient::class, static fn (): CheckoApiClient => new Ch
     useMock: $useMock,
 ));
 $container->bind(CompanyService::class);
+
+// =============================================================================
+// 3.1. Инициализация и регистрация Monolog (Логирование)
+// =============================================================================
+$logDir = __DIR__ . '/../var/log';
+if (!is_dir($logDir)) {
+    mkdir($logDir, 0777, true);
+}
+
+$logger = new Logger('app');
+$logger->pushHandler(new RotatingFileHandler($logDir . '/app.log', 7, Level::Info));
+
+// Регистрируем в DI-контейнере. Теперь Container сможет внедрить его в контроллер.
+$container->bind(Logger::class, fn() => $logger);
+// =============================================================================
+
 $container->bind(CompanyController::class);
 
 // ---------------------------------------------------------------------------

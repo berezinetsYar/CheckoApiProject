@@ -1,33 +1,20 @@
-# Зависимости Composer
 /vendor/
 composer.lock
-
-# Локальные переменные окружения
 .env
 .env.*
-!.env.example
-
-# Кэш и логи
-/cache/
-/var/cache/
-/var/log/
+# Логи приложения
+var/log/
 *.log
-
-# IDE
-/.idea/
-/.vscode/
-*.iml
-
-# Сгенерированная документация OpenAPI/Swagger
-/public/docs/openapi.yaml
-public/openapi.json
-
-# Данные PostgreSQL (если том локальный)
-/pgdata/
-
-# Системные файлы
 .DS_Store
-Thumbs.db
-/nbproject/private/
+.idea/
+.vscode/
+public/openapi.json
 docker-data/
 *.bundle
+
+# PHPUnit
+vendor/
+.phpunit.result.cache
+.phpunit.cache/
+coverage-html/
+coverage.xml
