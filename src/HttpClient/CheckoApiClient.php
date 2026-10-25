@@ -7,17 +7,24 @@ use App\Dto\CompanyDto;
 use App\Exceptions\ExternalApiException;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\BadResponseException;
+use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\TransferException;
 use GuzzleHttp\ClientInterface;
 use JsonException;
 
 final class CheckoApiClient
 {
+    /**
+     * @param int $maxRetries число ПОВТОРНЫХ попыток после первого запроса
+     *                      (0 — ретраев нет; используется в тестах с MockHandler,
+     *                       чтобы не нарушать очередь ответов/исключений).
+     */
     public function __construct(
         private readonly string $apiKey,
         private readonly string $baseUrl = 'https://api.checko.ru/v2',
         private readonly bool $useMock = false,
         private ?ClientInterface $httpClient = null,
+        private readonly int $maxRetries = 2,
     ) {
     }
 
@@ -45,7 +52,7 @@ final class CheckoApiClient
 
         try {
             // 2. Заголовки теперь задаются глобально в методе client()
-            $response = $this->client()->request('GET', 'company', [
+            $response = $this->requestWithRetry('GET', 'company', [
                 'query' => [
                     'key' => $cleanApiKey, // Используем уже очищенную переменную
                     'inn' => $cleanInn,    // Используем уже очищенную переменную
@@ -109,6 +116,37 @@ final class CheckoApiClient
             'director' => isset($data['Руковод'][0]['ФИО']) ? $data['Руковод'][0]['ФИО'] : null,
             'raw'      => $decoded,
         ]);
+    }
+
+    /**
+     * Выполняет HTTP-запрос с повторными попытками.
+     *
+     * Ретраи применяются ТОЛЬКО к сетевым ошибкам (ConnectException).
+     * BadResponseException (HTTP 4xx/5xx) не перехватывается и не повторяется —
+     * он уходит в блок catch вызывающего кода как есть.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function requestWithRetry(string $method, string $uri, array $options = []): \Psr\Http\Message\ResponseInterface
+    {
+        $attempt = 0;
+
+        while (true) {
+            try {
+                return $this->client()->request($method, $uri, $options);
+            } catch (ConnectException $e) {
+                $attempt++;
+
+                // Превышено число повторных попыток — пробрасываем ошибку дальше
+                // (будет преобразована в ExternalApiException(CODE_NETWORK_ERROR)).
+                if ($attempt > $this->maxRetries) {
+                    throw $e;
+                }
+
+                // Простая экспоненциальная задержка: 100ms, 200ms, 400ms...
+                usleep(100_000 * (2 ** ($attempt - 1)));
+            }
+        }
     }
 
     private function client(): ClientInterface

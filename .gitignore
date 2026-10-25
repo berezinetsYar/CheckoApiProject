@@ -1,7 +1,7 @@
 /vendor/
-composer.lock
 .env
 .env.*
+!.env.example
 # Логи приложения
 var/log/
 *.log

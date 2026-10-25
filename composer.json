@@ -14,8 +14,7 @@
     },
     "autoload": {
         "psr-4": {
-            "App\\": "src/",
-            "Monolog\\": "vendor/monolog/monolog/src/Monolog"
+            "App\\": "src/"
         }
     },
     "autoload-dev": {
